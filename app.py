@@ -9,35 +9,101 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
-# --- 1. 환경 변수 및 초기 설정 ---
-# 🚨 주의: API 키를 여기에 직접 입력하거나 환경 변수로 설정해야 합니다.
-# 챗봇 노트북에서 사용한 키를 재사용합니다.
-# 실제 제출 시에는 이 부분은 사용자에게 맡기는 것이 좋습니다.
-# app.py 파일의 키 설정 부분을 이렇게 변경합니다.
+# --- 1. 페이지 설정 (가장 먼저 실행되어야 함) ---
+st.set_page_config(
+    page_title="Cyberpunk 2077 Wiki AI",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# --- 2. 환경 변수 및 초기 설정 ---
 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 RAG_MODEL = "gpt-4o-mini"
 DATA_FILE = "cyberpunk_shards.txt"
 CHROMA_DIR = "./cyberpunk_chroma_db"
 
-# Streamlit 앱 제목 설정
-st.title("사이버펑크 2077 세계관 백과사전 AI")
-st.caption("제공된 샤드 데이터만을 기반으로 답변하는 RAG 챗봇입니다.")
+# --- 3. 커스텀 CSS (사이버펑크 테마 디자인) ---
+st.markdown("""
+<style>
+    /* 전체 배경 및 폰트 */
+    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap');
+    
+    .stApp {
+        background-color: #050505;
+        font-family: 'Rajdhani', sans-serif;
+    }
+    
+    /* 헤더 스타일 */
+    h1 {
+        color: #FCEE0A !important;
+        text-transform: uppercase;
+        text-shadow: 2px 2px 0px #00F0FF;
+        font-weight: 800 !important;
+        letter-spacing: 2px;
+    }
+    
+    /* 캡션 스타일 */
+    .stCaption {
+        color: #00F0FF !important;
+        font-size: 1.1em !important;
+        border-left: 3px solid #FCEE0A;
+        padding-left: 10px;
+    }
 
-# --- 2. 데이터 로드 및 RAG 체인 구축 (캐시 처리) ---
+    /* 채팅 메시지 컨테이너 */
+    .stChatMessage {
+        background-color: #1a1a1a;
+        border: 1px solid #333;
+        border-radius: 0px !important; /* 각진 테두리 */
+        margin-bottom: 10px;
+    }
 
-# @st.cache_resource: 앱이 시작될 때 이 함수를 한 번만 실행하고 결과를 캐시합니다.
+    /* 유저 메시지 (오른쪽 정렬 느낌) */
+    div[data-testid="stChatMessage"]:nth-child(odd) {
+        border-left: 5px solid #FCEE0A;
+    }
+
+    /* AI 메시지 (왼쪽 정렬 느낌) */
+    div[data-testid="stChatMessage"]:nth-child(even) {
+        border-right: 5px solid #00F0FF;
+        background-color: #0a0a0a;
+    }
+
+    /* 입력창 스타일 */
+    .stChatInput input {
+        background-color: #111 !important;
+        color: #FCEE0A !important;
+        border: 2px solid #FCEE0A !important;
+        border-radius: 0px !important;
+    }
+    
+    /* 로딩 스피너 색상 */
+    .stSpinner > div {
+        border-top-color: #FCEE0A !important;
+    }
+    
+    /* 하단 Streamlit 마크 숨기기 (선택사항) */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+</style>
+""", unsafe_allow_html=True)
+
+# 헤더 표시
+st.title("🔌 NIGHT CITY ARCHIVES")
+st.caption("ACCESSING SECURE DATASLATE... // WELCOME, EDGERUNNER.")
+
+# --- 4. 데이터 로드 및 RAG 체인 구축 (캐시 처리) ---
 @st.cache_resource
 def load_database():
     try:
-        # 1. 텍스트 로드
         loader = TextLoader(DATA_FILE, encoding="utf-8")
         documents = loader.load()
 
-        # 2. 텍스트 분할
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         docs = text_splitter.split_documents(documents)
 
-        # 3. 임베딩 모델 및 벡터 DB 생성
         embed_model = OpenAIEmbeddings(model="text-embedding-3-small")
         db = Chroma.from_documents(
             documents=docs, 
@@ -46,12 +112,11 @@ def load_database():
         )
         retriever = db.as_retriever()
         
-        # 4. LLM 및 프롬프트 정의 (RAG_Chatbot.ipynb의 셀 4 내용 재사용)
         llm = ChatOpenAI(model_name=RAG_MODEL)
         template = """
-        당신은 '사이버펑크 2077' 세계관 전문가입니다.
-        제공된 Context(샤드 내용)만을 바탕으로 사용자의 질문에 답변해 주세요.
-        만약 Context에 질문과 관련된 내용이 없다면, "죄송합니다. 제가 아는 샤드 내용 중에는 해당 정보가 없습니다."라고 답변하세요.
+        당신은 '사이버펑크 2077' 세계관의 정통한 정보 브로커(Fixer)입니다.
+        말투는 냉소적이지만 정보는 정확하게 전달하세요. (예: "~라고 하더군.", "~야.")
+        제공된 데이터(Context)에 있는 내용만 답하고, 모르는 내용은 "그건 내 정보망에 없는 내용이야."라고 딱 잘라 말하세요.
         
         Context:
         {context}
@@ -61,7 +126,6 @@ def load_database():
         """
         prompt = ChatPromptTemplate.from_template(template)
 
-        # 5. RAG 체인 구성 (RunnablePassthrough 사용)
         rag_chain = (
             {"context": retriever, "question": RunnablePassthrough()}
             | prompt
@@ -71,41 +135,31 @@ def load_database():
         return rag_chain
 
     except Exception as e:
-        # 파일이 없거나 API 키 오류 발생 시
-        st.error(f"데이터 로드 또는 DB 구축 중 오류 발생: {e}")
-        st.caption(f"'{DATA_FILE}' 파일과 OpenAI API 키 설정을 확인해 주세요.")
+        st.error(f"⚠️ CRITICAL ERROR: DATABASE CORRUPTED. {e}")
         return None
 
-# 데이터베이스 로드 및 RAG 체인 초기화
 rag_chain = load_database()
 
-# --- 3. 채팅 UI 및 Multi-Turn 구현 ---
-
+# --- 5. 채팅 UI 및 Multi-Turn 구현 ---
 if rag_chain:
-    # 챗 기록이 없으면 초기화
     if "messages" not in st.session_state:
         st.session_state.messages = []
+        # 초기 환영 메시지 추가
+        st.session_state.messages.append({"role": "assistant", "content": "원하는 정보를 말해봐. 가격은... 나중에 청구하지."})
 
-    # 이전 채팅 기록 표시
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # 사용자 입력 처리
-    if prompt_text := st.chat_input("사이버펑크 세계관에 대해 질문해보세요."):
-        
-        # 1. 사용자 질문을 기록 및 표시
+    if prompt_text := st.chat_input("데이터를 검색할 키워드 입력..."):
         st.session_state.messages.append({"role": "user", "content": prompt_text})
         with st.chat_message("user"):
             st.markdown(prompt_text)
 
-        # 2. LLM 호출 및 답변 생성
         with st.chat_message("assistant"):
-            with st.spinner("Night City의 지식을 검색 중입니다..."):
-                # RAG 체인 호출 (Multi-turn은 Streamlit의 messages history로 처리합니다.)
-                # RAG 체인이 질문(prompt_text)을 받아서 답변을 생성합니다.
+            message_placeholder = st.empty()
+            with st.spinner("📡 DECRYPTING SHARD DATA..."):
                 full_response = rag_chain.invoke(prompt_text)
-                st.markdown(full_response)
+                message_placeholder.markdown(full_response)
         
-        # 3. 답변을 기록
         st.session_state.messages.append({"role": "assistant", "content": full_response})
