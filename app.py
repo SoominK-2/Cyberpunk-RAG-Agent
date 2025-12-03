@@ -95,7 +95,7 @@ def load_database():
         db = Chroma.from_documents(splits, embed_model, persist_directory=CHROMA_DIR)
         
         # Retriever 설정 (k=6으로 늘려 검색 범위 확대)
-        retriever = db.as_retriever(search_kwargs={"k": 6})
+        retriever = db.as_retriever(search_kwargs={"k": 15})
         
         # LLM
         llm = ChatOpenAI(model_name=RAG_MODEL)
@@ -165,16 +165,19 @@ if user_input:
                     # 1. 질문 번역 (한글 -> 영어)
                     llm_trans = ChatOpenAI(model_name=RAG_MODEL)
                     trans_prompt = ChatPromptTemplate.from_template(
-                        "Translate the following Korean text to English for a Cyberpunk 2077 database search. Output ONLY the translated text.\nText: {text}"
+                        "Translate the following Korean text to English for a Cyberpunk 2077 database search. Output ONLY the translated text and nothing else.\nText: {text}"
                     )
-                    trans_chain = trans_prompt | llm_trans | StrOutputParser()
-                    english_query = trans_chain.invoke({"text": user_input})
+                    trans_chain = trans_prompt | llm_trans | StrOutputParser()                    
+
+                    # ⭐️ 2. 번역 실행 (출력물만 받도록 강제)
+                    english_query = trans_chain.invoke({"text": user_input}).strip()
                     
-                    # 2. RAG 실행 (영어 질문으로 검색)
+                    # 3. RAG 실행 (번역된 영어 질문으로 검색)
+                    # rag_chain은 영어 검색어(english_query)를 받아서 retrieval을 수행
                     response = rag_chain.invoke(english_query)
                     st.markdown(response)
-                    
-                    # 3. 출처 확인 (영어 질문으로 검색)
+
+                    # 4. 출처 확인 (영어 질문으로 검색)
                     source_docs = retriever.invoke(english_query)
                     unique_sources = []
                     for doc in source_docs:
