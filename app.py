@@ -166,54 +166,75 @@ def load_database():
 rag_chain, retriever = load_database()
 
 # --- 5. 채팅 인터페이스 ---
+# --- 5. 채팅 UI 및 로직 ---
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "원하는 정보를 말해봐. 가격은... 나중에 청구하지."}]
+    st.session_state.messages = []
+    st.session_state.messages.append({"role": "assistant", "content": "원하는 정보를 말해봐. 가격은... 나중에 청구하지."})
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-        if "sources" in msg:
-            with st.expander("🔍 데이터 출처 확인"):
-                for src in msg["sources"]:
-                    st.caption(src)
+# 이전 대화 출력
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+        if "sources" in message:
+            with st.expander("🔍 참고한 데이터 출처"):
+                for src in message["sources"]:
+                    st.text(f"- {src}")
 
-# 입력 처리
-user_input = st.chat_input("데이터 검색...") or st.session_state.get("prompt_input")
-
-if user_input:
-    # 버튼 입력값 초기화
-    if "prompt_input" in st.session_state:
+# 사용자 입력 처리
+if user_input := st.chat_input("데이터 검색...") or st.session_state.get("prompt_input"):
+    if st.session_state.get("prompt_input"):
         del st.session_state["prompt_input"]
 
-    # 1. 사용자 메시지 표시
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # 2. AI 답변 생성
     with st.chat_message("assistant"):
-        if rag_chain:
-            with st.spinner("📡 NEURAL LINK ESTABLISHED..."):
-                # 답변 생성
-                response = rag_chain.invoke(user_input)
-                st.markdown(response)
-                
-                # 출처 찾기 (Retriever 별도 호출)
-                source_docs = retriever.invoke(user_input)
-                unique_sources = []
-                for doc in source_docs:
-                    src_text = f"[{doc.metadata.get('source', 'Unknown')}] {doc.page_content[:50]}..."
-                    if src_text not in unique_sources:
-                        unique_sources.append(src_text)
-                
-                with st.expander("🔍 데이터 출처 확인"):
-                    for src in unique_sources:
-                        st.caption(src)
-                
-                st.session_state.messages.append({
-                    "role": "assistant", 
-                    "content": response, 
-                    "sources": unique_sources
-                })
-        else:
-            st.error("⛔ 데이터베이스 연결 실패. 관리자에게 문의하세요.")
+        with st.spinner("📡 TRANSLATING & SEARCHING..."):
+            if rag_chain:
+                try:
+                    # [핵심 수정 1] 질문 번역기 (한글 -> 영어)
+                    # DB가 영어로 되어 있으므로, 검색 정확도를 위해 질문을 영어로 바꿉니다.
+                    llm_for_trans = ChatOpenAI(model_name=RAG_MODEL)
+                    trans_prompt = ChatPromptTemplate.from_template(
+                        "Translate the following Korean text to English for a database search query about Cyberpunk 2077. Just output the translated text:\n\n{korean_text}"
+                    )
+                    trans_chain = trans_prompt | llm_for_trans | StrOutputParser()
+                    
+                    # 사용자의 한글 질문을 영어로 번역
+                    search_query = trans_chain.invoke({"korean_text": user_input})
+                    # st.caption(f"Debug: 검색어 변환됨 -> {search_query}") # 디버깅용 (필요시 주석 해제)
+
+                    # [핵심 수정 2] 번역된 영어 질문(search_query)으로 검색 실행
+                    # 하지만 답변 생성용 입력(input)은 사용자 원래 질문(user_input)을 맥락으로 줄 수도 있으나, 
+                    # 여기서는 검색된 영어 Context를 바탕으로 한글 답변을 생성하도록 유도합니다.
+                    
+                    # rag_chain은 'input'을 받아서 retrieval을 수행하므로, 여기에 영어 질문을 넣습니다.
+                    result = rag_chain.invoke({"input": search_query})
+                    
+                    response_text = result["answer"]
+                    source_docs = result["context"]
+                    
+                    # 출처 정리
+                    sources = []
+                    for doc in source_docs:
+                        src_info = f"[{doc.metadata.get('source', '알 수 없음')}] {doc.page_content[:30]}..."
+                        if src_info not in sources:
+                            sources.append(src_info)
+
+                    st.markdown(response_text)
+                    
+                    if sources:
+                        with st.expander("🔍 참고한 데이터 출처"):
+                            for src in sources:
+                                st.text(f"- {src}")
+                    
+                    st.session_state.messages.append({
+                        "role": "assistant", 
+                        "content": response_text,
+                        "sources": sources
+                    })
+                except Exception as e:
+                     st.error(f"에러 발생: {e}")
+            else:
+                st.error("데이터베이스 로드 실패")
