@@ -65,7 +65,7 @@ st.caption("ACCESSING SECURE DATASLATE... // WELCOME, EDGERUNNER.")
 
 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 RAG_MODEL = "gpt-4o-mini"
-CHROMA_DIR = "./cyberpunk_chroma_db"
+CHROMA_DIR = "/tmp/chroma_db"
 
 @st.cache_resource
 def load_database():
