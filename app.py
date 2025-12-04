@@ -24,17 +24,17 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS 스타일링 (사이드바 대폭 확장)
+# CSS 스타일링 (사이드바 너비 최적화: 400px)
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap');
     .stApp { background-color: #050505; font-family: 'Rajdhani', sans-serif; }
     h1 { color: #FCEE0A !important; text-transform: uppercase; text-shadow: 2px 2px 0px #00F0FF; }
     
-    /* ⭐️⭐️⭐️ 사이드바 너비 500px로 확장 ⭐️⭐️⭐️ */
+    /* ⭐️ 사이드바 너비 400px로 조정 ⭐️ */
     [data-testid="stSidebar"] { 
-        min-width: 500px !important; 
-        max-width: 600px !important; 
+        min-width: 400px !important; 
+        max-width: 450px !important; 
     }
     
     .stButton button { width: 100%; border: 1px solid #FCEE0A; color: #FCEE0A; background-color: #000; text-align: left; }
@@ -44,6 +44,12 @@ st.markdown("""
     div[data-testid="stChatMessage"]:nth-child(even) { border-right: 5px solid #00F0FF; background-color: #0a0a0a; }
     .stChatInput input { background-color: #111 !important; color: #FCEE0A !important; border: 2px solid #FCEE0A !important; }
     .stSpinner > div { border-top-color: #FCEE0A !important; }
+    
+    /* 출처 아코디언 스타일 */
+    .streamlit-expanderHeader {
+        color: #00F0FF !important;
+        font-family: 'Rajdhani', sans-serif;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -51,9 +57,6 @@ st.markdown("""
 with st.sidebar:
     st.title("📂 넷러너 가이드")
     st.markdown("---")
-    
-    trans_debug_area = st.empty()
-    
     st.info("💡 **Tip:** 아래 질문을 클릭하면 자동으로 입력됩니다.")
     
     questions = {
@@ -99,18 +102,19 @@ def load_database():
         embed_model = OpenAIEmbeddings(model="text-embedding-3-small")
         
         db = Chroma.from_documents(splits, embed_model, persist_directory=CHROMA_DIR)
-        
-        # ⭐️⭐️⭐️ 검색 범위 k=30으로 최대로 확장 ⭐️⭐️⭐️
-        retriever = db.as_retriever(search_kwargs={"k": 30})
+        retriever = db.as_retriever(search_kwargs={"k": 25})
         
         llm = ChatOpenAI(model_name=RAG_MODEL)
         
-        # ⭐️⭐️⭐️ 프롬프트 수정: 정보를 종합해서 추론하도록 유도 ⭐️⭐️⭐️
+        # ⭐️ 프롬프트 수정: 말투 강화 및 고유명사 유지 지시 ⭐️
         template = """
-        당신은 '사이버펑크 2077' 세계관의 정통한 정보 브로커입니다.
-        아래 제공된 Context(정보)들을 종합하여 사용자의 질문에 답변하세요.
-        단일 문서에 답이 없더라도, 여러 문서의 내용을 연결하여 추론한 결과를 말해주세요.
-        정말 정보가 전혀 없다면 "관련된 구체적인 기록을 찾을 수 없어."라고 답하세요.
+        당신은 '사이버펑크 2077' 세계관의 냉소적이고 유능한 정보 브로커(Fixer)입니다.
+        
+        [지시사항]
+        1. 말투: "~입니다/습니다" 같은 존댓말 절대 금지. "~야", "~군", "~하더군" 같은 반말이나 하대하는 말투를 사용해.
+        2. 고유명사: 'Relic'은 '렐릭', 'Evelyn'은 '이블린'으로 정확히 표기해. 엉뚱하게 번역하지 마.
+        3. 근거: 반드시 아래 제공된 Context(정보)들을 종합해서 답해. 
+        4. 모름: 정보가 없으면 "내 정보망엔 없는 건인데. 다른 걸 물어봐."라고 짧게 끊어.
         
         Context:
         {context}
@@ -118,7 +122,7 @@ def load_database():
         Question:
         {question}
         
-        Answer (한국어로, 정보 브로커톤으로):
+        Answer (정보 브로커 스타일):
         """
         prompt = ChatPromptTemplate.from_template(template)
 
@@ -144,16 +148,21 @@ rag_chain, retriever = load_database()
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "원하는 정보를 말해봐. 가격은... 나중에 청구하지."}]
 
-for msg in st.session_state.messages:
+# 이전 메시지 출력 (⭐️ 버그 수정: 중복 렌더링 방지 ⭐️)
+for i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-        if "sources" in msg:
+        # 가장 마지막 메시지가 아니거나, 이미 출처가 표시된 경우에만 출력
+        if "sources" in msg and msg["sources"]:
             with st.expander("🔍 데이터 출처 확인"):
                 for src in msg["sources"]:
                     st.caption(src)
 
-if user_input := st.chat_input("데이터 검색...") or st.session_state.get("prompt_input"):
-    if st.session_state.get("prompt_input"):
+# 입력 처리
+user_input = st.chat_input("데이터 검색...") or st.session_state.get("prompt_input")
+
+if user_input:
+    if "prompt_input" in st.session_state:
         del st.session_state["prompt_input"]
 
     st.session_state.messages.append({"role": "user", "content": user_input})
@@ -162,9 +171,13 @@ if user_input := st.chat_input("데이터 검색...") or st.session_state.get("p
 
     with st.chat_message("assistant"):
         if rag_chain:
-            with st.spinner("📡 TRANSLATING & SEARCHING..."):
-                try:
-                    # 1. 질문 번역
+            # ⭐️ UI 개선: 번역 과정을 스피너 텍스트로 통합 ⭐️
+            status_placeholder = st.empty()
+            
+            try:
+                # 1. 번역
+                with status_placeholder.status("📡 암호 해독 중...", expanded=True) as status:
+                    status.write("질문 번역 중...")
                     llm_trans = ChatOpenAI(model_name=RAG_MODEL)
                     trans_prompt = ChatPromptTemplate.from_template(
                         "Translate the following Korean text to English for a Cyberpunk 2077 database search. Output ONLY the translated text.\nText: {text}"
@@ -172,11 +185,11 @@ if user_input := st.chat_input("데이터 검색...") or st.session_state.get("p
                     trans_chain = trans_prompt | llm_trans | StrOutputParser()
                     english_query = trans_chain.invoke({"text": user_input}).strip()
                     
-                    trans_debug_area.success(f"🇺🇸 번역된 검색어: **{english_query}**")
+                    status.write(f"검색어 변환: **{english_query}**")
+                    status.write("데이터베이스 검색 중...")
                     
                     # 2. RAG 실행
                     response = rag_chain.invoke(english_query)
-                    st.markdown(response)
                     
                     # 3. 출처 확인
                     source_docs = retriever.invoke(english_query)
@@ -186,16 +199,25 @@ if user_input := st.chat_input("데이터 검색...") or st.session_state.get("p
                         if src_text not in unique_sources:
                             unique_sources.append(src_text)
                     
+                    status.update(label="✅ 데이터 확보 완료", state="complete", expanded=False)
+
+                # 답변 출력
+                st.markdown(response)
+                
+                # 출처 출력
+                if unique_sources:
                     with st.expander("🔍 데이터 출처 확인"):
                         for src in unique_sources:
                             st.caption(src)
-                    
-                    st.session_state.messages.append({
-                        "role": "assistant", 
-                        "content": response, 
-                        "sources": unique_sources
-                    })
-                except Exception as e:
-                    st.error(f"처리 중 오류 발생: {e}")
+                
+                # 세션 저장
+                st.session_state.messages.append({
+                    "role": "assistant", 
+                    "content": response, 
+                    "sources": unique_sources
+                })
+                
+            except Exception as e:
+                st.error(f"처리 중 오류 발생: {e}")
         else:
             st.error("시스템 오프라인.")
