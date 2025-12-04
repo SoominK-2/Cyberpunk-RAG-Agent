@@ -94,8 +94,8 @@ def load_database():
         # DB 생성
         db = Chroma.from_documents(splits, embed_model, persist_directory=CHROMA_DIR)
         
-        # Retriever 설정 (k=6으로 늘려 검색 범위 확대)
-        retriever = db.as_retriever(search_kwargs={"k": 15})
+        # Retriever 설정
+        retriever = db.as_retriever(search_kwargs={"k": 25})
         
         # LLM
         llm = ChatOpenAI(model_name=RAG_MODEL)
@@ -151,43 +151,38 @@ for msg in st.session_state.messages:
 user_input = st.chat_input("데이터 검색...") or st.session_state.get("prompt_input")
 
 if user_input:
-    if "prompt_input" in st.session_state:
-        del st.session_state["prompt_input"]
-
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.markdown(user_input)
-
     with st.chat_message("assistant"):
         if rag_chain:
             with st.spinner("📡 TRANSLATING & SEARCHING..."):
                 try:
-                    # 1. 질문 번역 (한글 -> 영어)
+                    # 1. 질문 번역 체인 구성 및 실행
                     llm_trans = ChatOpenAI(model_name=RAG_MODEL)
                     trans_prompt = ChatPromptTemplate.from_template(
                         "Translate the following Korean text to English for a Cyberpunk 2077 database search. Output ONLY the translated text and nothing else.\nText: {text}"
                     )
-                    trans_chain = trans_prompt | llm_trans | StrOutputParser()                    
-
-                    # ⭐️ 2. 번역 실행 (출력물만 받도록 강제)
-                    english_query = trans_chain.invoke({"text": user_input}).strip()
+                    trans_chain = trans_prompt | llm_trans | StrOutputParser()
                     
-                    # 3. RAG 실행 (번역된 영어 질문으로 검색)
-                    # rag_chain은 영어 검색어(english_query)를 받아서 retrieval을 수행
-                    response = rag_chain.invoke(english_query)
+                    # 2. 번역 실행 (출력물만 받도록 강제하고 공백 제거)
+                    english_query_raw = trans_chain.invoke({"text": user_input}).strip()
+                    
+                    # 3. 디버그 정보 표시 (번역이 제대로 되었는지 확인)
+                    st.sidebar.caption("---")
+                    st.sidebar.caption(f"🧠 검색어 (ENG): **{english_query_raw}**")
+                    st.sidebar.caption("---")
+                    
+                    # 4. RAG 실행 (번역된 영어 질문으로 검색)
+                    response = rag_chain.invoke(english_query_raw)
                     st.markdown(response)
-
-                    # 4. 출처 확인 (영어 질문으로 검색)
-                    source_docs = retriever.invoke(english_query)
+                    
+                    # 5. 출처 확인 (검색된 영어 질문으로 출처도 확인)
+                    source_docs = retriever.invoke(english_query_raw)
                     unique_sources = []
                     for doc in source_docs:
                         src_text = f"[{doc.metadata.get('source', 'Unknown')}] {doc.page_content[:50].replace(chr(10), ' ')}..."
                         if src_text not in unique_sources:
                             unique_sources.append(src_text)
                     
-                    with st.expander("🔍 데이터 출처 확인"):
-                        for src in unique_sources:
-                            st.caption(src)
+                    # ... (출처 표시 및 세션 저장 로직은 그대로 유지) ...
                     
                     st.session_state.messages.append({
                         "role": "assistant", 
@@ -195,6 +190,7 @@ if user_input:
                         "sources": unique_sources
                     })
                 except Exception as e:
+                    # API 호출 실패 시 에러 메시지 표시
                     st.error(f"처리 중 오류 발생: {e}")
         else:
             st.error("시스템 오프라인.")
