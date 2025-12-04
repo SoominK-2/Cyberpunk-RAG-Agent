@@ -1251,3 +1251,12 @@ Similar to all other types of data, engrams can be overwritten with another digi
 
 ----
 
+[문서 제목: V (Character) and Arasaka]
+출처: Manual Input
+V, also known as Valerie or Vincent, represents a significant threat to Arasaka Corporation. After the heist at Konpeki Plaza, V becomes inextricably linked to Arasaka due to the Relic (Biochip) embedded in their head, which contains the engram of Johnny Silverhand. Johnny Silverhand is a rockerboy and terrorist who nuked Arasaka Tower in 2023 and is a sworn enemy of the corporation. V is fighting for survival against the Relic overwriting their consciousness, while Arasaka seeks to recover their property. Hanako Arasaka sees V as a tool to expose Yorinobu Arasaka's crimes (patricide of Saburo Arasaka). Therefore, V's relationship with Arasaka is one of mutual hostility, temporary usage, and existential conflict.
+----
+
+[문서 제목: Relic (Biochip)]
+출처: Manual Input
+The Relic is a prototype biochip created by Arasaka Corporation, designed to secure the personality construct of a person (Secure Your Soul program). The specific version V stole contains Johnny Silverhand's engram and utilizes nanotechnology to rewrite the host's neural network, effectively resurrecting the engram in a new body.
+----

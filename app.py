@@ -1,4 +1,4 @@
-# --- 1. SQLite 패치 (Streamlit Cloud 오류 방지) ---
+# --- 1. SQLite 패치 ---
 try:
     __import__('pysqlite3')
     import sys
@@ -24,13 +24,19 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS 스타일링
+# CSS 스타일링 (사이드바 대폭 확장)
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap');
     .stApp { background-color: #050505; font-family: 'Rajdhani', sans-serif; }
     h1 { color: #FCEE0A !important; text-transform: uppercase; text-shadow: 2px 2px 0px #00F0FF; }
-    [data-testid="stSidebar"] { min-width: 400px !important; max-width: 500px !important; }
+    
+    /* ⭐️⭐️⭐️ 사이드바 너비 500px로 확장 ⭐️⭐️⭐️ */
+    [data-testid="stSidebar"] { 
+        min-width: 500px !important; 
+        max-width: 600px !important; 
+    }
+    
     .stButton button { width: 100%; border: 1px solid #FCEE0A; color: #FCEE0A; background-color: #000; text-align: left; }
     .stButton button:hover { border-color: #00F0FF; color: #00F0FF; }
     .stChatMessage { background-color: #1a1a1a; border: 1px solid #333; border-radius: 0px !important; }
@@ -46,7 +52,6 @@ with st.sidebar:
     st.title("📂 넷러너 가이드")
     st.markdown("---")
     
-    # 번역 결과 표시 영역 (플레이스홀더)
     trans_debug_area = st.empty()
     
     st.info("💡 **Tip:** 아래 질문을 클릭하면 자동으로 입력됩니다.")
@@ -69,7 +74,6 @@ st.caption("ACCESSING SECURE DATASLATE... // WELCOME, EDGERUNNER.")
 
 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 RAG_MODEL = "gpt-4o-mini"
-# 서버 권한 문제 해결을 위해 /tmp 사용
 CHROMA_DIR = "/tmp/chroma_db"
 
 @st.cache_resource
@@ -96,15 +100,17 @@ def load_database():
         
         db = Chroma.from_documents(splits, embed_model, persist_directory=CHROMA_DIR)
         
-        # ⭐️⭐️⭐️ [수정됨] 검색 범위를 20개로 대폭 늘림 ⭐️⭐️⭐️
-        retriever = db.as_retriever(search_kwargs={"k": 20})
+        # ⭐️⭐️⭐️ 검색 범위 k=30으로 최대로 확장 ⭐️⭐️⭐️
+        retriever = db.as_retriever(search_kwargs={"k": 30})
         
         llm = ChatOpenAI(model_name=RAG_MODEL)
         
+        # ⭐️⭐️⭐️ 프롬프트 수정: 정보를 종합해서 추론하도록 유도 ⭐️⭐️⭐️
         template = """
         당신은 '사이버펑크 2077' 세계관의 정통한 정보 브로커입니다.
-        반드시 아래 제공된 Context(정보)만을 기반으로 답변하세요.
-        Context에 없는 내용은 "내 정보망에 없는 내용이야."라고 답하세요.
+        아래 제공된 Context(정보)들을 종합하여 사용자의 질문에 답변하세요.
+        단일 문서에 답이 없더라도, 여러 문서의 내용을 연결하여 추론한 결과를 말해주세요.
+        정말 정보가 전혀 없다면 "관련된 구체적인 기록을 찾을 수 없어."라고 답하세요.
         
         Context:
         {context}
@@ -112,7 +118,7 @@ def load_database():
         Question:
         {question}
         
-        Answer (한국어로):
+        Answer (한국어로, 정보 브로커톤으로):
         """
         prompt = ChatPromptTemplate.from_template(template)
 
@@ -158,7 +164,7 @@ if user_input := st.chat_input("데이터 검색...") or st.session_state.get("p
         if rag_chain:
             with st.spinner("📡 TRANSLATING & SEARCHING..."):
                 try:
-                    # 1. 질문 번역 (한글 -> 영어)
+                    # 1. 질문 번역
                     llm_trans = ChatOpenAI(model_name=RAG_MODEL)
                     trans_prompt = ChatPromptTemplate.from_template(
                         "Translate the following Korean text to English for a Cyberpunk 2077 database search. Output ONLY the translated text.\nText: {text}"
@@ -166,10 +172,9 @@ if user_input := st.chat_input("데이터 검색...") or st.session_state.get("p
                     trans_chain = trans_prompt | llm_trans | StrOutputParser()
                     english_query = trans_chain.invoke({"text": user_input}).strip()
                     
-                    # ⭐️⭐️⭐️ [수정됨] 사이드바에 번역 결과 표시 ⭐️⭐️⭐️
                     trans_debug_area.success(f"🇺🇸 번역된 검색어: **{english_query}**")
                     
-                    # 2. RAG 실행 (영어 질문으로 검색)
+                    # 2. RAG 실행
                     response = rag_chain.invoke(english_query)
                     st.markdown(response)
                     
