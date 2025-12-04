@@ -24,14 +24,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS 스타일링 (사이드바 너비 최적화: 400px)
+# CSS 스타일링 (사이드바 400px 고정)
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap');
     .stApp { background-color: #050505; font-family: 'Rajdhani', sans-serif; }
     h1 { color: #FCEE0A !important; text-transform: uppercase; text-shadow: 2px 2px 0px #00F0FF; }
     
-    /* ⭐️ 사이드바 너비 400px로 조정 ⭐️ */
     [data-testid="stSidebar"] { 
         min-width: 400px !important; 
         max-width: 450px !important; 
@@ -44,12 +43,6 @@ st.markdown("""
     div[data-testid="stChatMessage"]:nth-child(even) { border-right: 5px solid #00F0FF; background-color: #0a0a0a; }
     .stChatInput input { background-color: #111 !important; color: #FCEE0A !important; border: 2px solid #FCEE0A !important; }
     .stSpinner > div { border-top-color: #FCEE0A !important; }
-    
-    /* 출처 아코디언 스타일 */
-    .streamlit-expanderHeader {
-        color: #00F0FF !important;
-        font-family: 'Rajdhani', sans-serif;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -103,16 +96,18 @@ def load_database():
         
         db = Chroma.from_documents(splits, embed_model, persist_directory=CHROMA_DIR)
         retriever = db.as_retriever(search_kwargs={"k": 25})
-        
         llm = ChatOpenAI(model_name=RAG_MODEL)
         
-        # ⭐️ 프롬프트 수정: 말투 강화 및 고유명사 유지 지시 ⭐️
+        # ⭐️ 프롬프트 수정: 말투 강화 및 번역 규칙 주입 ⭐️
         template = """
         당신은 '사이버펑크 2077' 세계관의 냉소적이고 유능한 정보 브로커(Fixer)입니다.
         
         [지시사항]
         1. 말투: "~입니다/습니다" 같은 존댓말 절대 금지. "~야", "~군", "~하더군" 같은 반말이나 하대하는 말투를 사용해.
-        2. 고유명사: 'Relic'은 '렐릭', 'Evelyn'은 '이블린'으로 정확히 표기해. 엉뚱하게 번역하지 마.
+        2. 고유명사 번역 규칙: 
+           - 영어로 된 고유명사는 사이버펑크 2077 한국어 공식 번역명을 따라야 해.
+           - Relic -> 렐릭, Evelyn -> 이블린, Arasaka -> 아라사카, Militech -> 밀리테크, Maelstrom -> 멜스트롬, Johnny -> 조니, V -> V(브이).
+           - 그 외의 영어 이름도 발음나는 대로 자연스러운 한국어로 표기해.
         3. 근거: 반드시 아래 제공된 Context(정보)들을 종합해서 답해. 
         4. 모름: 정보가 없으면 "내 정보망엔 없는 건인데. 다른 걸 물어봐."라고 짧게 끊어.
         
@@ -144,38 +139,39 @@ def load_database():
 
 rag_chain, retriever = load_database()
 
-# --- 5. 채팅 인터페이스 ---
+# --- 5. 채팅 인터페이스 (버그 수정됨) ---
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "원하는 정보를 말해봐. 가격은... 나중에 청구하지."}]
 
-# 이전 메시지 출력 (⭐️ 버그 수정: 중복 렌더링 방지 ⭐️)
-for i, msg in enumerate(st.session_state.messages):
+# 1. 이전 대화 기록 출력 (여기가 순수하게 '기록'만 보여주는 곳)
+for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-        # 가장 마지막 메시지가 아니거나, 이미 출처가 표시된 경우에만 출력
-        if "sources" in msg and msg["sources"]:
+        # 저장된 출처가 있을 때만 표시
+        if msg.get("sources"):
             with st.expander("🔍 데이터 출처 확인"):
                 for src in msg["sources"]:
                     st.caption(src)
 
-# 입력 처리
-user_input = st.chat_input("데이터 검색...") or st.session_state.get("prompt_input")
-
-if user_input:
-    if "prompt_input" in st.session_state:
+# 2. 사용자 입력 처리
+if user_input := st.chat_input("데이터 검색...") or st.session_state.get("prompt_input"):
+    if st.session_state.get("prompt_input"):
         del st.session_state["prompt_input"]
 
-    st.session_state.messages.append({"role": "user", "content": user_input})
+    # 사용자 메시지 표시
     with st.chat_message("user"):
         st.markdown(user_input)
+    
+    # ⭐️ 핵심: 사용자 메시지는 '화면 표시' 후 세션에 저장 (순서 중요)
+    st.session_state.messages.append({"role": "user", "content": user_input})
 
+    # AI 답변 생성 과정
     with st.chat_message("assistant"):
         if rag_chain:
-            # ⭐️ UI 개선: 번역 과정을 스피너 텍스트로 통합 ⭐️
             status_placeholder = st.empty()
             
             try:
-                # 1. 번역
+                # 상태창 (번역 및 검색 과정 표시)
                 with status_placeholder.status("📡 암호 해독 중...", expanded=True) as status:
                     status.write("질문 번역 중...")
                     llm_trans = ChatOpenAI(model_name=RAG_MODEL)
@@ -188,29 +184,33 @@ if user_input:
                     status.write(f"검색어 변환: **{english_query}**")
                     status.write("데이터베이스 검색 중...")
                     
-                    # 2. RAG 실행
+                    # RAG 실행
                     response = rag_chain.invoke(english_query)
                     
-                    # 3. 출처 확인
+                    # 출처 확인
                     source_docs = retriever.invoke(english_query)
                     unique_sources = []
                     for doc in source_docs:
-                        src_text = f"[{doc.metadata.get('source', 'Unknown')}] {doc.page_content[:50].replace(chr(10), ' ')}..."
+                        # Lore 데이터인지 Shard 데이터인지에 따라 표시 방식 최적화
+                        src_type = doc.metadata.get('source', 'Unknown')
+                        content_snippet = doc.page_content[:50].replace(chr(10), ' ')
+                        src_text = f"[{src_type}] {content_snippet}..."
+                        
                         if src_text not in unique_sources:
                             unique_sources.append(src_text)
                     
                     status.update(label="✅ 데이터 확보 완료", state="complete", expanded=False)
 
-                # 답변 출력
+                # ⭐️ 답변 출력 (화면에만 먼저 그림)
                 st.markdown(response)
                 
-                # 출처 출력
+                # ⭐️ 출처 출력 (화면에만 먼저 그림)
                 if unique_sources:
                     with st.expander("🔍 데이터 출처 확인"):
                         for src in unique_sources:
                             st.caption(src)
                 
-                # 세션 저장
+                # ⭐️ 모든 과정이 끝난 후, 세션에 '한 번만' 저장 (중복 버그 해결의 핵심)
                 st.session_state.messages.append({
                     "role": "assistant", 
                     "content": response, 
