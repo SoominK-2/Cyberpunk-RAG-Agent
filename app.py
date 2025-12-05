@@ -8,7 +8,7 @@ except ImportError:
 
 import streamlit as st
 import os
-import random  # ⭐️ 랜덤 문구 기능을 위해 필수
+import random
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_community.document_loaders import TextLoader
@@ -53,7 +53,6 @@ with st.sidebar:
     st.markdown("---")
     st.info("💡 **Tip:** 아래 질문을 클릭하면 자동으로 입력됩니다.")
     
-    # ⭐️ 요청하신 '다양한 질문 예시' 적용 ⭐️
     questions = {
         "👥 V와 조니의 관계?": "V와 조니 실버핸드는 서로 어떤 관계이고 어떻게 변해가?",
         "🏢 아라사카의 숨겨진 목적": "아라사카 기업이 렐릭(Relic)을 만든 진짜 목적이 뭐야?",
@@ -75,80 +74,114 @@ os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 RAG_MODEL = "gpt-4o-mini"
 CHROMA_DIR = "/tmp/chroma_db"
 
+# 헬퍼 함수: Streamlit 메시지를 간결한 대화 기록 문자열로 변환
+def get_chat_history_string(messages):
+    history = []
+    # 초기 환영 메시지는 건너뛰고, 최대 4개의 이전 턴만 사용
+    for msg in messages[-5:-1]:
+        if msg["role"] == "user":
+            history.append(f"User: {msg['content']}")
+        elif msg["role"] == "assistant":
+            history.append(f"Fixer: {msg['content']}")
+    return "\n".join(history)
+
 @st.cache_resource
 def load_database():
     try:
+        # 데이터 로드 및 벡터 DB 설정 (이전과 동일)
         all_docs = []
-        
         if os.path.exists("cyberpunk_shards.txt"):
             docs1 = TextLoader("cyberpunk_shards.txt", encoding="utf-8").load()
             for d in docs1: d.metadata["source"] = "인게임 샤드"
             all_docs.extend(docs1)
-        
         if os.path.exists("cyberpunk_lore.txt"):
             docs2 = TextLoader("cyberpunk_lore.txt", encoding="utf-8").load()
             for d in docs2: d.metadata["source"] = "위키 설정(Lore)"
             all_docs.extend(docs2)
-
         if not all_docs:
-            return None, None
+            return None, None, None, None
 
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         splits = text_splitter.split_documents(all_docs)
         embed_model = OpenAIEmbeddings(model="text-embedding-3-small")
-        
         db = Chroma.from_documents(splits, embed_model, persist_directory=CHROMA_DIR)
         retriever = db.as_retriever(search_kwargs={"k": 25})
-        llm = ChatOpenAI(model_name=RAG_MODEL)
+        llm = ChatOpenAI(model_name=RAG_MODEL, temperature=0.3)
         
-        # ⭐️ 프롬프트 수정: 픽서 말투 + 고유명사 고정 ⭐️
+        # 1. 쿼리 재구성을 위한 프롬프트 (Condensing) - 영어로 독립적인 검색어 생성
+        condense_template = """
+        Given the following conversation history and a new question, combine them into a single, standalone English search query for a Cyberpunk 2077 database.
+        If the new question is a follow-up, use the history to clarify the intent.
+        If the new question is standalone, just translate it to English.
+        Output ONLY the standalone English query text.
+
+        Chat History:
+        {chat_history}
+
+        New Question: {question}
+
+        Standalone English Query:
+        """
+        condense_prompt = ChatPromptTemplate.from_template(condense_template)
+        
+        # 2. 쿼리 재구성 체인
+        condense_chain = condense_prompt | llm | StrOutputParser()
+
+        # 3. RAG 답변 생성용 프롬프트 (Final Answer)
         template = """
         당신은 '사이버펑크 2077' 세계관의 냉소적이고 유능한 정보 브로커(Fixer)입니다.
         
         [지시사항]
-        1. 말투: "~입니다/습니다" 절대 금지. "~야", "~군", "~하더군", "~일걸" 같은 반말 사용.
-        2. 태도: 너무 딱딱하게 설명하지 말고, 의뢰인에게 정보를 브리핑하듯 자연스럽게 이야기해.
-        3. 고유명사 (한국어 공식 번역 준수): 
+        1. **언어**: 답변은 **오직 한국어**로만 작성하며, 다른 언어(영어, 일본어 등)를 절대 섞어 쓰지 마시오.
+        2. 말투: "~입니다/습니다" 절대 금지. "~야", "~군", "~하더군", "~일걸" 같은 반말 사용.
+        3. 태도: 너무 딱딱하게 설명하지 말고, 의뢰인에게 정보를 브리핑하듯 자연스럽게 이야기해.
+        4. 고유명사 (한국어 공식 번역 준수): 
            - Panam -> **팬앰**
            - Hanako -> **하나코**
            - Yorinobu -> 요리노부
            - Saburo -> 사부로
            - Relic -> 렐릭
-           - Evelyn -> 이블린
+           - Evelyn -> **이블린**
            - Arasaka -> 아라사카
            - Militech -> 밀리테크
            - Johnny -> 조니
            - V -> V(브이)
-        4. 근거: 반드시 아래 제공된 Context(정보)들을 종합해서 답해. 
-        5. 모름: 정보가 없으면 "내 정보망엔 없는 건인데. 다른 걸 물어봐."라고 짧게 끊어. 헛소리 금지.
+           기타 인물명, 지명 등은 최대한 한국어 표기를 사용해.
+        5. 근거: 반드시 아래 제공된 Context(정보)들을 종합해서 답해. 
+        6. 모름: 정보가 없으면 "내 정보망엔 없는 건인데. 다른 걸 물어봐."라고 짧게 끊어. 헛소리 금지.
+
+        [대화 기록 (참고용)]
+        {chat_history}
         
-        Context:
+        Context (검색된 정보):
         {context}
         
-        Question:
+        Question (사용자의 원래 질문):
         {question}
         
         Answer (정보 브로커 스타일):
         """
-        prompt = ChatPromptTemplate.from_template(template)
+        final_rag_prompt = ChatPromptTemplate.from_template(template)
 
         def format_docs(docs):
+            # 검색된 문서들의 내용을 하나의 문자열로 합칩니다.
             return "\n\n".join(doc.page_content for doc in docs)
 
+        # 4. 최종 RAG 체인 (검색된 Context와 Chat History, Original Question을 모두 사용)
         rag_chain = (
-            {"context": retriever | format_docs, "question": RunnablePassthrough()}
-            | prompt
+            RunnablePassthrough.assign(context=(lambda x: x["standalone_query"]) | retriever | format_docs)
+            | final_rag_prompt
             | llm
             | StrOutputParser()
         )
         
-        return rag_chain, retriever
+        return rag_chain, condense_chain, retriever, llm
 
     except Exception as e:
         st.error(f"시스템 오류: {e}")
-        return None, None
+        return None, None, None, None
 
-rag_chain, retriever = load_database()
+rag_chain, condense_chain, retriever, llm = load_database()
 
 # --- 5. 채팅 인터페이스 ---
 if "messages" not in st.session_state:
@@ -174,34 +207,39 @@ if user_input := st.chat_input("데이터 검색...") or st.session_state.get("p
         st.markdown(user_input)
 
     with st.chat_message("assistant"):
-        if rag_chain:
+        if rag_chain and condense_chain:
             status_placeholder = st.empty()
             
             try:
-                # ⭐️ 랜덤 로딩 문구 적용 ⭐️
+                # ⭐️ 멀티 턴 핵심 로직: 대화 기록 + 현재 질문으로 독립적인 검색어 생성 ⭐️
+                chat_history_str = get_chat_history_string(st.session_state.messages)
+
                 loading_texts = [
-                    "📡 암호 해독 중...",
-                    "💾 데이터뱅크 접속...",
-                    "⚡ 넷러닝 프로토콜 시작...",
-                    "🔍 샤드 데이터 스캔 중...",
-                    "🕶️ 정보망 가동..."
+                    "📡 암호 해독 중...", "💾 데이터뱅크 접속...", 
+                    "⚡ 넷러닝 프로토콜 시작...", "🔍 샤드 데이터 스캔 중...", "🕶️ 정보망 가동..."
                 ]
                 
                 with status_placeholder.status(random.choice(loading_texts), expanded=True) as status:
-                    status.write("질문 번역 중...")
-                    llm_trans = ChatOpenAI(model_name=RAG_MODEL)
-                    trans_prompt = ChatPromptTemplate.from_template(
-                        "Translate the following Korean text to English for a Cyberpunk 2077 database search. Output ONLY the translated text.\nText: {text}"
-                    )
-                    trans_chain = trans_prompt | llm_trans | StrOutputParser()
-                    english_query = trans_chain.invoke({"text": user_input}).strip()
                     
-                    status.write(f"검색어 변환: **{english_query}**")
-                    status.write("데이터베이스 검색 중...")
+                    # 1. 독립적인 검색 쿼리 생성 (영어)
+                    status.write("이전 대화 맥락을 기반으로 검색어 재구성 중...")
+                    standalone_query = condense_chain.invoke({
+                        "chat_history": chat_history_str,
+                        "question": user_input
+                    }).strip()
                     
-                    response = rag_chain.invoke(english_query)
+                    status.write(f"최종 검색 쿼리: **{standalone_query}**")
+                    status.write("데이터베이스 검색 및 답변 생성 중...")
                     
-                    source_docs = retriever.invoke(english_query)
+                    # 2. RAG 실행 (Standalone Query를 검색에 사용)
+                    result = rag_chain.invoke({
+                        "standalone_query": standalone_query, # Context 검색에 사용됨
+                        "question": user_input, # 최종 답변 생성 프롬프트에 사용됨
+                        "chat_history": chat_history_str # 최종 답변 생성 프롬프트에 사용됨
+                    })
+                    
+                    # 3. 검색된 출처 문서 추출 (Standalone Query로 검색)
+                    source_docs = retriever.invoke(standalone_query)
                     unique_sources = []
                     for doc in source_docs:
                         clean_content = doc.page_content.replace("\n", " ").replace("\r", " ")
@@ -211,7 +249,7 @@ if user_input := st.chat_input("데이터 검색...") or st.session_state.get("p
                     
                     status.update(label="✅ 데이터 확보 완료", state="complete", expanded=False)
 
-                st.markdown(response)
+                st.markdown(result)
                 
                 if unique_sources:
                     with st.expander("🔍 데이터 출처 확인"):
@@ -220,7 +258,7 @@ if user_input := st.chat_input("데이터 검색...") or st.session_state.get("p
                 
                 st.session_state.messages.append({
                     "role": "assistant", 
-                    "content": response, 
+                    "content": result, 
                     "sources": unique_sources
                 })
                 
