@@ -36,7 +36,23 @@ st.markdown("""
         min-width: 400px !important; 
         max-width: 450px !important; 
     }
-    
+
+    /* 모바일 환경에서 사이드바 완전히 숨기기 */
+    @media (max-width: 768px) {
+        [data-testid="stSidebar"] {
+            display: none !important; /* 사이드바 본체 숨김 */
+        }
+        [data-testid="stSidebarUser"] {
+            display: none !important;
+        }
+        [data-testid="stSidebarControls"] {
+            display: none !important; /* 햄버거 메뉴 버튼 숨김 */
+        }
+        section.main {
+             padding-left: 1rem !important; /* 모바일에서 좌우 패딩 최소화 */
+             padding-right: 1rem !important;
+        }
+    }   
     .stButton button { width: 100%; border: 1px solid #FCEE0A; color: #FCEE0A; background-color: #000; text-align: left; }
     .stButton button:hover { border-color: #00F0FF; color: #00F0FF; }
     .stChatMessage { background-color: #1a1a1a; border: 1px solid #333; border-radius: 0px !important; }
