@@ -32,6 +32,11 @@ st.markdown("""
     .stApp { background-color: #050505; font-family: 'Rajdhani', sans-serif; }
     h1 { color: #FCEE0A !important; text-transform: uppercase; text-shadow: 2px 2px 0px #00F0FF; }
     
+    [data-testid="stAppViewContainer"] {
+        background-color: #050505 !important;
+        color: #FCEE0A !important;
+    }  
+
     /* PC 환경: 사이드바 설정 */
     [data-testid="stSidebar"] { 
         min-width: 400px !important; 
