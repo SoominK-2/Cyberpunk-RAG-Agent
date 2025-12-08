@@ -25,58 +25,83 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS 스타일링 (모바일 버튼 숨김 & 텍스트 가시성 확보)
+# ⭐️ CSS 스타일링 (여기가 바뀐 유일한 부분입니다) ⭐️
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap');
-    .stApp { background-color: #050505; font-family: 'Rajdhani', sans-serif; }
-    h1 { color: #FCEE0A !important; text-transform: uppercase; text-shadow: 2px 2px 0px #00F0FF; }
     
-    [data-testid="stAppViewContainer"] {
+    /* 1. 전체 배경 강제 블랙 (라이트 모드 사용자 눈뽕 방지) */
+    .stApp {
         background-color: #050505 !important;
-        color: #FCEE0A !important;
-    }  
-
-    /* PC 환경: 사이드바 설정 */
-    [data-testid="stSidebar"] { 
-        min-width: 400px !important; 
-        max-width: 450px !important; 
+        font-family: 'Rajdhani', sans-serif;
     }
     
-    /* 모바일 환경 최적화 */
+    /* 2. 텍스트 색상 강제 */
+    h1, h2, h3, h4, h5, h6, p, div, span, label, li {
+        color: #FCEE0A !important;
+    }
+    
+    h1 { 
+        text-transform: uppercase; 
+        text-shadow: 2px 2px 0px #00F0FF; 
+    }
+    
+    /* 3. 사이드바 스타일 */
+    [data-testid="stSidebar"] { 
+        background-color: #000000 !important;
+        min-width: 400px !important; 
+        max-width: 450px !important; 
+        border-right: 1px solid #1a1a1a;
+    }
+    
+    /* 4. 입력창 및 버튼 스타일 (흰색 배경 차단) */
+    .stChatInput input { 
+        background-color: #111 !important; 
+        color: #FCEE0A !important; 
+        border: 2px solid #FCEE0A !important; 
+    }
+    
+    .stButton button { 
+        width: 100%; 
+        border: 1px solid #FCEE0A !important; 
+        color: #FCEE0A !important; 
+        background-color: #000 !important; 
+        text-align: left; 
+    }
+    .stButton button:hover { 
+        border-color: #00F0FF !important; 
+        color: #00F0FF !important; 
+    }
+    
+    /* 5. 채팅 메시지 박스 */
+    .stChatMessage { 
+        background-color: #1a1a1a !important; 
+        border: 1px solid #333 !important; 
+        border-radius: 0px !important; 
+    }
+    div[data-testid="stChatMessage"]:nth-child(odd) { 
+        border-left: 5px solid #FCEE0A !important; 
+    }
+    div[data-testid="stChatMessage"]:nth-child(even) { 
+        border-right: 5px solid #00F0FF !important; 
+        background-color: #0a0a0a !important; 
+    }
+    
+    /* 6. 로딩 스피너 & 아코디언 헤더 */
+    .stSpinner > div { border-top-color: #FCEE0A !important; }
+    .streamlit-expanderHeader {
+        background-color: #050505 !important;
+        color: #FCEE0A !important;
+    }
+    
+    /* 7. 모바일 환경 최적화 */
     @media (max-width: 768px) {
-        /* 사이드바 본체 숨김 */
         [data-testid="stSidebar"] { display: none !important; }
-        /* 사이드바 여는 화살표 버튼(>) 숨김 (이게 핵심) */
         [data-testid="stSidebarCollapsedControl"] { display: none !important; }
-        
-        /* 메인 화면 여백 조정 */
         section.main {
              padding-left: 1rem !important;
              padding-right: 1rem !important;
         }
-    }
-
-    /* 버튼 스타일 */
-    .stButton button { width: 100%; border: 1px solid #FCEE0A; color: #FCEE0A; background-color: #000; text-align: left; }
-    .stButton button:hover { border-color: #00F0FF; color: #00F0FF; }
-    
-    /* 채팅 메시지 스타일 */
-    .stChatMessage { background-color: #1a1a1a; border: 1px solid #333; border-radius: 0px !important; }
-    div[data-testid="stChatMessage"]:nth-child(odd) { border-left: 5px solid #FCEE0A; }
-    div[data-testid="stChatMessage"]:nth-child(even) { border-right: 5px solid #00F0FF; background-color: #0a0a0a; }
-    .stChatInput input { background-color: #111 !important; color: #FCEE0A !important; border: 2px solid #FCEE0A !important; }
-    .stSpinner > div { border-top-color: #FCEE0A !important; }
-    
-    /* Expander(아코디언) 헤더 글자색 강제 지정 */
-    /* 검은 배경에 묻히지 않도록 네온 컬러 적용 */
-    .streamlit-expanderHeader p {
-        color: #FCEE0A !important;
-        font-weight: bold;
-        font-size: 1.1rem;
-    }
-    [data-testid="stExpander"] details summary {
-        color: #FCEE0A !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -171,7 +196,6 @@ def load_database():
             | llm
             | StrOutputParser()
         )
-        
         return rag_chain, condense_chain, retriever, llm
 
     except Exception as e:
